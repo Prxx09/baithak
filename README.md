@@ -1,6 +1,6 @@
 # Baithak · बैठक
 
-**One player. Your people.** An invite-only YouTube watch room with synchronized playback, a shared queue, and chat. Create a room with only its name; invitations join automatically. Display names are optional. No email, password, or login form.
+**One player. Your people.** An invite-only YouTube watch room with synchronized playback, a shared queue, and chat. Create a room with a room name and your display name. Invitations prefill the room link and ask each visitor to enter a name before joining. No email, password, or login form.
 
 ## Features
 
