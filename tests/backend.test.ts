@@ -48,4 +48,13 @@ describe('room authorization and broadcaster ownership',()=>{
     await expect(db.query('insert into public.baithak_signals(room_id,sender_id,receiver_id,payload) values($1,$2,$3,$4)',[room,ids[1],ids[0],{scope:'voice',hello:true}])).rejects.toThrow('row-level security');
     expect((await db.query('select * from public.baithak_rooms')).rows).toHaveLength(0);
   });
+  it('reproduces the voice RLS failure for an inactive participant and restores it through a named rejoin',async()=>{
+    await asUser(0);const s=await call('create','');room=s.room.id;code=s.room.invite_code;await asUser(1);await call('join');
+    await db.exec('reset role');await db.query("update public.baithak_members set last_seen=now()-interval '80 seconds' where room_id=$1 and user_id=$2",[room,ids[1]]);
+    await asUser(0);
+    const signal=()=>db.query('insert into public.baithak_signals(room_id,sender_id,receiver_id,payload) values($1,$2,$3,$4)',[room,ids[0],ids[1],{scope:'voice',hello:true}]);
+    await expect(signal()).rejects.toThrow('row-level security');
+    await asUser(1);await expect(call('heartbeat')).rejects.toThrow('session expired');await call('join',code,'Returning friend');
+    await asUser(0);await signal();
+  });
 });

@@ -18,6 +18,8 @@ describe('voice signaling and lifecycle', () => {
   let removed: ReturnType<typeof vi.fn>;
   let session: VoiceSession;
   let changed: ReturnType<typeof vi.fn>;
+  let insert: ReturnType<typeof vi.fn>;
+  let refreshMembers: ReturnType<typeof vi.fn>;
   function signal(id: number, payload: Record<string, unknown>, sender = 'friend') {
     receive({ new: { id, room_id: 'room', sender_id: sender, payload: { scope: 'voice', session: 'remote-session', started: 100, ...payload }, created_at: new Date().toISOString() } });
   }
@@ -27,8 +29,10 @@ describe('voice signaling and lifecycle', () => {
     vi.stubGlobal('MediaStream', Stream); vi.stubGlobal('RTCPeerConnection', PeerConnection);
     const channel = { on: vi.fn((_event, _filter, callback) => { receive = callback; return channel; }), subscribe: vi.fn(() => channel) };
     const query = { eq: () => query, gt: () => query, order: () => query, limit: async () => ({ data: [], error: null }) };
-    const db = { channel: () => channel, removeChannel: removed, from: () => ({ select: () => query, insert: async (row: typeof writes[number]) => { writes.push(row); return { error: null }; } }) } as unknown as SupabaseClient;
-    session = new VoiceSession(db, 'room', 'you', changed, vi.fn());
+    insert = vi.fn(async (row: typeof writes[number]) => { writes.push(row); return { error: null as null | {code:string;message:string} }; });
+    refreshMembers = vi.fn().mockResolvedValue([member('you'), member('friend')]);
+    const db = { channel: () => channel, removeChannel: removed, from: () => ({ select: () => query, insert }) } as unknown as SupabaseClient;
+    session = new VoiceSession(db, 'room', 'you', changed, vi.fn(), refreshMembers);
     await session.start([member('you'), member('friend')]);
   });
   afterEach(() => { session.close(); vi.unstubAllGlobals(); });
@@ -56,5 +60,19 @@ describe('voice signaling and lifecycle', () => {
     signal(3, { hello: true, started: 100 }); await flush(); expect(PeerConnection.all).toHaveLength(2);
     signal(4, { bye: true, session: 'new-session', started: 200 }); await flush();
     expect(changed).toHaveBeenLastCalledWith('friend', null);
+  });
+  it('renews membership and retries one denied signaling write', async () => {
+    signal(1, { hello: true }); await flush();
+    insert.mockResolvedValueOnce({ error: { code: '42501', message: 'new row violates row-level security policy' } });
+    await session.setMicrophone(null);
+    expect(refreshMembers).toHaveBeenCalledOnce();
+    expect(insert).toHaveBeenLastCalledWith(expect.objectContaining({ receiver_id: 'friend' }));
+  });
+  it('drops an expired recipient instead of repeatedly sending unauthorized signals', async () => {
+    signal(1, { hello: true }); await flush();
+    refreshMembers.mockResolvedValue([member('you')]);
+    insert.mockClear(); insert.mockResolvedValueOnce({ error: { code: '42501', message: 'new row violates row-level security policy' } });
+    await session.setMicrophone(null);
+    expect(insert).toHaveBeenCalledOnce(); expect(changed).toHaveBeenLastCalledWith('friend', null);
   });
 });

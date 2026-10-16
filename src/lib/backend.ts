@@ -28,3 +28,14 @@ export async function command(action: string, code = '', name = '', title = ''):
   if (error) throw error;
   return data as Snapshot;
 }
+
+// Mobile browsers suspend heartbeat timers in the background. Re-admit the same
+// named guest with the invitation; the server still checks room expiry/capacity.
+export async function refreshMembership(code: string, name: string): Promise<Snapshot> {
+  try { return await command('heartbeat', code); }
+  catch (error) {
+    const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : '';
+    if (!/your room session expired/i.test(message) || !name.trim()) throw error;
+    return await command('join', code, name);
+  }
+}

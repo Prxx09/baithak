@@ -26,8 +26,11 @@ export class VoiceSession {
   private closed = false;
   private pulling = false;
   private track: MediaStreamTrack | null = null;
+  private recovery: Promise<Member[]> | null = null;
+  private recoveryAt = 0;
   constructor(private db: SupabaseClient, private roomId: string, private userId: string,
-    private changed: (id: string, peer: VoicePeer | null) => void, private failed: (message: string) => void) {}
+    private changed: (id: string, peer: VoicePeer | null) => void, private failed: (message: string) => void,
+    private refreshMembers?: () => Promise<Member[]>) {}
 
   async start(members: Member[]) {
     this.channel = this.db.channel(`voice:${this.roomId}:${this.userId}:${this.session}`)
@@ -50,9 +53,33 @@ export class VoiceSession {
   }
   private async send(id: string, payload: Partial<VoiceSignal>) {
     if (this.closed) return;
-    const { error } = await this.db.from('baithak_signals').insert({ room_id: this.roomId, sender_id: this.userId, receiver_id: id,
+    const insert = () => this.db.from('baithak_signals').insert({ room_id: this.roomId, sender_id: this.userId, receiver_id: id,
       payload: { ...payload, scope: 'voice', session: this.session, started: this.started, mic: !!this.track } });
-    if (error) throw error;
+    let { error } = await insert();
+    if (error?.code === '42501' && this.refreshMembers && !this.closed) {
+      // Re-check both participants instead of relaxing RLS or retrying a stale
+      // recipient indefinitely. Share one recovery across an ICE candidate burst.
+      if (!this.recovery || Date.now() - this.recoveryAt > 1000) {
+        this.recoveryAt = Date.now();
+        this.recovery = this.refreshMembers();
+      }
+      const members = await this.recovery;
+      if (this.closed) return;
+      this.sync(members);
+      if (!members.some(member => member.user_id === id)) return;
+      ({ error } = await insert());
+    }
+    if (error) throw new Error(error.code === '42501'
+      ? 'Voice access could not be renewed. Leave voice and rejoin the room using its invitation.' : error.message);
+  }
+  async resume() {
+    if (this.closed || !this.refreshMembers) return;
+    this.sync(await this.refreshMembers());
+    if (this.closed) return;
+    for (const [id, peer] of this.peers) {
+      if (peer.pc?.connectionState === 'failed' || peer.pc?.connectionState === 'disconnected') peer.pc.restartIce();
+      await this.send(id, { hello: true });
+    }
   }
   private async pull() {
     if (this.closed || this.pulling) return;

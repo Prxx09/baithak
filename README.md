@@ -23,6 +23,8 @@ Rooms last **four hours from creation**; joining, refreshing, and host changes d
 
 Voice uses the existing `baithak_signals` table, Realtime events, and a polling fallback. Signaling includes per-join session IDs to ignore stale offers after reconnecting. Audio is not recorded. Free STUN works on many networks; restrictive NAT/firewalls can require TURN. Set `VITE_ICE_SERVERS` to a JSON array of browser-visible ICE server configuration if you operate a relay. Do not put privileged or long-lived server secrets there. No paid voice provider is required, but peer-to-peer connectivity cannot be guaranteed on every network without a relay.
 
+On returning from a suspended mobile tab, the app renews the previously named guest's membership with the invitation if its 75-second activity window elapsed. Voice confirms current membership after the microphone prompt, refreshes on network/foreground recovery, and retries a denied signaling write once after checking both participants. Inactive recipients are removed rather than retried. Expired rooms still cannot be rejoined; RLS remains enabled and unchanged.
+
 ## Stack and synchronization
 
 React + TypeScript + Vite, YouTube IFrame Player API, Supabase Postgres/guest sessions/Realtime, GitHub, and Vercel. Open-source application code; external services have free-tier limits.
