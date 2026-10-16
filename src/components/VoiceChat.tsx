@@ -41,9 +41,9 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
     try {
       captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
       if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
+      stream.current = captured;
       const confirmedMembers = prepareRef.current ? await prepareRef.current() : currentMembers.current;
       if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
-      stream.current = captured;
       const media = new VoiceSession(backend(), roomId, userId, (id, value) => {
         if (!alive.current || generation.current !== attempt) return;
         if (value?.state === 'connected') setError('');

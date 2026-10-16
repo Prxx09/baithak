@@ -34,3 +34,11 @@ it('stops a permission response that arrives after the room unmounts', async () 
   await act(async () => resolve({ getTracks: () => [track], getAudioTracks: () => [track] }));
   expect(stop).toHaveBeenCalled(); expect(media.start).not.toHaveBeenCalled();
 });
+it('stops capture immediately when leaving during membership renewal', async () => {
+  let resolve!: (value: typeof members) => void;
+  const prepare = vi.fn(() => new Promise<typeof members>(r => { resolve = r; }));
+  await act(async () => root.render(<VoiceChat roomId="room" userId="you" members={members} demo={false} prepare={prepare}/>));
+  await act(async () => button('Join voice').click()); expect(prepare).toHaveBeenCalled();
+  await act(async () => root.render(null)); expect(stop).toHaveBeenCalled();
+  await act(async () => resolve(members)); expect(media.start).not.toHaveBeenCalled();
+});
