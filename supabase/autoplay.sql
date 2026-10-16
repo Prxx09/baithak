@@ -5,6 +5,8 @@ alter table public.baithak_playback add column if not exists autoplay_next jsonb
 alter table public.baithak_playback add column if not exists recently_played jsonb not null default '[]';
 alter table public.baithak_playback add column if not exists playlist_id text;
 alter table public.baithak_playback add column if not exists playlist_page_token text;
+-- App-generated recommendations are retired. YouTube renders suggestions in the host player.
+update public.baithak_playback set autoplay_next=null;
 do $$ begin
   if to_regprocedure('baithak_private.watch_core(text,text,jsonb,bigint,bigint)') is null then
     alter function baithak_private.watch(text,text,jsonb,bigint,bigint) rename to watch_core;
@@ -25,7 +27,7 @@ begin
   v_data:=baithak_private.watch_core(p_code,'read','{}',null,null);
   select * into v_state from public.baithak_playback where room_id=v_room.id;
   v_before:=v_state;
-  if p_action in ('set_autoplay','recommend','set_playlist','playlist_page','next') then
+  if p_action in ('set_autoplay','set_playlist','playlist_page','next') then
     if v_state.host_id<>v_uid then raise exception 'Only the current host can control playback.'; end if;
     if p_epoch is distinct from v_state.host_epoch then raise exception 'HOST_CHANGED'; end if;
     -- A duplicate end/skip belongs to an old video, even after a revision retry.
@@ -34,10 +36,6 @@ begin
   end if;
   if p_action='set_autoplay' then
     update public.baithak_playback set autoplay_enabled=(p_payload->>'enabled')::boolean,revision=revision+1 where room_id=v_room.id;
-  elsif p_action='recommend' then
-    if (p_payload->>'for_video_epoch')::bigint is distinct from v_state.video_epoch then return v_data; end if;
-    if not coalesce((p_payload->>'video_id') ~ '^[A-Za-z0-9_-]{11}$',false) or p_payload->>'video_id'=v_state.video_id then raise exception 'Choose a different valid YouTube video.'; end if;
-    update public.baithak_playback set autoplay_next=jsonb_build_object('video_id',p_payload->>'video_id','title',left(coalesce(p_payload->>'title','YouTube video'),180)),revision=revision+1 where room_id=v_room.id;
   elsif p_action='set_playlist' then
     if not coalesce((p_payload->>'playlist_id') ~ '^[A-Za-z0-9_-]{10,120}$',false) then raise exception 'Enter a valid YouTube playlist link.'; end if;
     update public.baithak_playback set playlist_id=p_payload->>'playlist_id',playlist_page_token='',autoplay_next=null,revision=revision+1 where room_id=v_room.id;
@@ -51,10 +49,6 @@ begin
     end loop;
     update public.baithak_playback set playlist_page_token=nullif(p_payload->>'next_token',''),revision=revision+1 where room_id=v_room.id;
   else
-    if p_action='next' and not exists(select 1 from public.baithak_queue where room_id=v_room.id)
-      and v_state.autoplay_enabled and v_state.autoplay_next is not null then
-      insert into public.baithak_queue(room_id,video_id,title,added_by) values(v_room.id,v_state.autoplay_next->>'video_id',v_state.autoplay_next->>'title',v_uid);
-    end if;
     v_data:=baithak_private.watch_core(p_code,p_action,p_payload,p_revision,p_epoch);
     select * into v_state from public.baithak_playback where room_id=v_room.id;
     if v_state.video_epoch<>v_before.video_epoch then

@@ -7,7 +7,7 @@
 - Embedded YouTube player as the main stage. The host controls play, pause, seek, speed, video changes, and queue advancement.
 - ±10-second controls and a shared timeline. Native YouTube host controls also synchronize. Guest volume/fullscreen remain local; guests can click Start watching if autoplay is blocked.
 - Paste YouTube watch/share/music/shorts/live/embed URLs or video IDs. Videos play inside Baithak.
-- Continuous playback: queued videos play first, playlists refill automatically, and host-selected contextual suggestions continue after the queue ends when Autoplay is enabled. The next suggestion is shared with guests.
+- Continuous playback: queued videos play first and public playlists refill automatically. When those finish, YouTube shows its own related suggestions inside the host player; the host’s selection is detected and synchronized to every guest.
 - Paste a public playlist URL to load it in pages of 20; the next page is fetched when five or fewer queued videos remain. Private/deleted playlist entries are skipped.
 - Everyone can add videos (up to 30). Only the host or the person who added an item can remove it. Playing a selected queue item consumes it atomically.
 - The creator starts as host and can pass control. Guests can request to host. Departed/inactive hosts are replaced by the server.
@@ -56,7 +56,7 @@ Target: `https://srdiobwssgiuwenbmxvd.supabase.co`.
 - **Existing watch-room installation:** run only [supabase/autoplay.sql](supabase/autoplay.sql). This additive upgrade is safe to rerun and preserves rooms/queues.
 - Enable **Anonymous Sign-Ins** in Authentication → Sign In / Providers. This identifies guests silently; no login screen is shown.
 - Keep `baithak_private` out of exposed Data API schemas. Public wrappers are security invokers; checked privileged implementations remain private.
-- Run [supabase/verify.sql](supabase/verify.sql) and dashboard security advisors. The watch-room upgrade adds `baithak_playback` to Realtime. Autoplay adds shared preferences, a next-video candidate, playlist cursors, and the latest 100 played video IDs to that row.
+- Run [supabase/verify.sql](supabase/verify.sql) and dashboard security advisors. The watch-room upgrade adds `baithak_playback` to Realtime. The playlist upgrade adds shared playlist cursors and the latest 100 played video IDs to that row. Legacy autoplay columns remain for migration compatibility but the app does not generate recommendations.
 - Set the public URL/key in Vercel, then redeploy.
 
 Setup requires project-owner access. A publishable key cannot install tables/functions or change authentication settings.
@@ -81,10 +81,10 @@ Anonymous signup and Realtime/database free quotas apply. Before broad public ac
 
 MIT license. Third-party services have their own terms.
 
-## Autoplay behaviour
+## YouTube suggestions and continuous playback
 
-Autoplay continues through the shared queue first. If it is empty, the host refills a loaded playlist; once the playlist finishes, contextual discovery supplies a next video if Autoplay is on. Turning Autoplay off stops suggestions after the explicit queue/playlist finishes. Guests never independently select their next video. End transitions include the ending video epoch, so duplicate callbacks cannot double-skip.
+The explicit shared queue plays first. Public playlists refill and advance automatically. When the queue and playlist are empty, the embedded player displays related videos selected by YouTube. The host can choose one inside the player; Baithak detects the resulting video change and broadcasts its ID, title, state, and timestamp so every guest follows the same choice.
 
-YouTube does not expose its personalized website recommendation feed. Baithak uses supported video metadata and search endpoints to find context-based picks, excluding recently played/queued IDs. It does not use the deprecated `relatedToVideoId` parameter or scrape YouTube. Suggestions are prefetched near the end of the explicit queue and cost API quota only on the host. If discovery fails or quota is exhausted, the queue still works and the app shows a retry option.
+Baithak does not generate, rank, or filter autoplay recommendations. The public YouTube APIs do not expose the personalized Up Next feed or a command that selects its first recommendation automatically. Consequently, a single non-playlist video stops on YouTube's related-video screen until the host selects a suggestion. Exact hands-free website autoplay would require a companion browser extension controlling a signed-in youtube.com tab.
 
-The browser may still require one Start watching click for unmuted audio. Once permitted, consecutive videos are loaded in the same embedded player. Unavailable/non-embeddable videos are skipped by the host, with a three-failure limit to prevent infinite retry chains. This is continuous playback, not guaranteed gapless or buffer-free streaming.
+The browser may still require one Start watching click for unmuted audio. Once permitted, consecutive videos are loaded in the same embedded player. Unavailable/non-embeddable queued videos are skipped by the host, with a three-failure limit to prevent infinite retry chains. Playback is continuous where browser and YouTube policies allow it; it cannot guarantee gapless or buffer-free streaming.

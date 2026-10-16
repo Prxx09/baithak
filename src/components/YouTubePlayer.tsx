@@ -25,6 +25,7 @@ function loadAPI():Promise<YouTubeAPI>{
 }
 interface Props {
   playback:Playback|null;isHost:boolean;serverNow:()=>number;
+  hasQueuedNext?:boolean;
   onCommand:(action:string,payload:Record<string,unknown>)=>void;
   onProgress:(position:number,duration:number)=>void;
   onStatus:(status:string)=>void;onError:(message:string)=>void;onUnavailable?:(videoId:string)=>void;
@@ -74,7 +75,7 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
     const element=document.createElement('div');mount.current?.appendChild(element);
     void loadAPI().then(api=>{
       if(disposed)return;
-      player.current=new api.Player(element,{width:'100%',height:'100%',playerVars:{autoplay:1,playsinline:1,controls:1,origin:location.origin,rel:0},events:{
+      player.current=new api.Player(element,{width:'100%',height:'100%',playerVars:{autoplay:1,playsinline:1,controls:1,origin:location.origin,rel:1},events:{
         onReady:()=>{if(disposed)return;ready.current=true;setLoading(false);latest.current.onStatus('Ready');apply(true);},
         onStateChange:(event:{data:number})=>{
           if(disposed)return;
@@ -82,7 +83,12 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
           latest.current.onStatus(event.data===3?'Buffering':event.data===1?'Playing':event.data===2?'Paused':'Ready');
           if(!yt||!p||yt.getVideoData()?.video_id!==p.video_id)return;
           if(event.data===1&&yt.getPlaybackRate()!==p.playback_rate){suppressed.current=performance.now()+1200;yt.setPlaybackRate(p.playback_rate);}
-          if(event.data===0&&latest.current.isHost&&ended.current!==p.video_id){ended.current=p.video_id;emit('next',{from_video_epoch:p.video_epoch});return;}
+          if(event.data===0&&latest.current.isHost&&ended.current!==p.video_id){
+            ended.current=p.video_id;
+            if(latest.current.hasQueuedNext)emit('next',{from_video_epoch:p.video_epoch});
+            else latest.current.onStatus('Choose a YouTube suggestion');
+            return;
+          }
           if(!latest.current.isHost){if(event.data===1&&performance.now()>suppressed.current)apply();return;}
           if(performance.now()<suppressed.current)return;
           if(event.data===1||event.data===2)emit(event.data===1?'play':'pause',{state:event.data===1?'playing':'paused'});
