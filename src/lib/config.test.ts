@@ -6,6 +6,6 @@ describe('invitation parsing',()=>{
   it('rejects a URL without an invitation',()=>expect(parseRoomCode('https://baithak.example/')).toBe(''));
 });
 describe('setup errors',()=>{
-  it('explains disabled guest authentication',()=>expect(friendlyError(new Error('Anonymous sign-ins are disabled'))).toContain('Authentication'));
-  it('explains missing schema',()=>expect(friendlyError({message:'Could not find baithak_command in the schema cache'})).toContain('SQL setup'));
+  it('keeps guest setup details out of the visitor flow',()=>expect(friendlyError(new Error('Anonymous sign-ins are disabled'))).toContain('You do not need an account'));
+  it('explains missing backend without asking visitors to configure it',()=>expect(friendlyError({message:'Could not find baithak_command in the schema cache'})).toContain('app owner'));
 });

@@ -9,7 +9,12 @@ export function backend() {
   client = createClient(config.url, config.key, { auth: { storage: sessionStorage, storageKey: 'baithak.auth.v1', persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } });
   return client;
 }
-export async function guest() {
+let guestRequest: Promise<string> | null = null;
+export function guest(): Promise<string> {
+  if (!guestRequest) guestRequest = establishGuest().finally(() => { guestRequest = null; });
+  return guestRequest;
+}
+async function establishGuest() {
   const db = backend();
   const { data: existing, error: sessionError } = await db.auth.getSession();
   if (sessionError) throw sessionError;

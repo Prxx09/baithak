@@ -45,7 +45,9 @@ Import `Prxx09/baithak`, use the **Vite** framework preset, install with `npm ci
 
 ## Features
 
-- Create a named room and share a 128-bit invitation code/link.
+- Create a room using only its name and share a 128-bit invitation code/link. No email, password, OTP, or sign-in screen.
+- Invitations join automatically using an invisible guest session. Display names are optional; otherwise a guest name is assigned.
+- Deployed connection settings are applied automatically to all visitors. Operator settings remain available at `/?setup=1`.
 - Up to six active guests per room; four-hour rooms; up to three open rooms per creator.
 - Atomically claim/release one sharing slot; request a turn in the People panel.
 - A 45-second sharing lease, refreshed every seven seconds. Clients stop sharing after 30 seconds without a successful heartbeat. Inactive memberships expire after 75 seconds.

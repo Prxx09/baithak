@@ -2,7 +2,9 @@ export const DEFAULT_URL = 'https://srdiobwssgiuwenbmxvd.supabase.co';
 export function getConfig() {
   let saved: { url?: string; key?: string } = {};
   try { saved = JSON.parse(localStorage.getItem('baithak.connection.v1') || '{}'); } catch { /* Ignore corrupted local settings. */ }
-  return { url: saved.url || import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL, key: saved.key || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || '' };
+  // Deployed settings are authoritative so guests never need to configure a connection.
+  if (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY) return { url: import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL, key: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY };
+  return { url: saved.url || import.meta.env.VITE_SUPABASE_URL || DEFAULT_URL, key: saved.key || '' };
 }
 export function saveConfig(url: string, key: string) {
   const parsed = new URL(url);
@@ -22,8 +24,8 @@ export function parseRoomCode(value: string): string {
 }
 export function friendlyError(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String(error.message) : 'Something went wrong. Please try again.';
-  if (/anonymous.*disabled|anonymous.*not enabled/i.test(message)) return 'Guest access needs to be enabled in Supabase → Authentication → Sign In / Providers → Anonymous Sign-Ins.';
-  if (/schema cache|baithak_command.*not|does not exist/i.test(message)) return 'The room backend is not installed yet. Run the SQL setup from the repository in your Supabase SQL Editor.';
+  if (/anonymous.*disabled|anonymous.*not enabled/i.test(message)) return 'Rooms are not ready yet. The app owner needs to finish guest access setup. You do not need an account or password.';
+  if (/schema cache|baithak_command.*not|does not exist/i.test(message)) return 'Rooms are not ready yet. The app owner needs to finish the room backend setup. Please try again later.';
   if (/permission denied|row-level security/i.test(message)) return 'Room access was denied. Rejoin using the invitation link.';
   if (/NotAllowedError|Permission denied/i.test(message)) return 'Permission was declined. Try again and allow the selected device or screen.';
   return message;
