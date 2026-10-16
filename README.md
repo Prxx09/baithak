@@ -11,9 +11,17 @@
 - Paste a public playlist URL to load it in pages of 20; the next page is fetched when five or fewer queued videos remain. Private/deleted playlist entries are skipped.
 - Everyone can add videos (up to 30). Only the host or the person who added an item can remove it. Playing a selected queue item consumes it atomically.
 - The creator starts as host and can pass control. Guests can request to host. Departed/inactive hosts are replaced by the server.
-- Six guests, invitation links, chat, room expiration, owner end-room, and an explicit local player preview.
+- Six people total, invitation links, text chat, optional live voice, room expiration, owner end-room, and an explicit local player preview.
 
-This version replaces the meeting/screen-sharing interface. Each device loads the same YouTube video and follows the room timeline. No screen capture, TURN, SFU, or video relay is involved. Original screen-sharing components remain in source but are not mounted.
+This version replaces the meeting/screen-sharing interface. Each device loads the same YouTube video and follows the room timeline. Optional voice uses audio-only WebRTC between participants; Supabase carries membership-protected signaling and never receives microphone audio. Original screen-sharing components remain in source but are not mounted.
+
+## Live voice and temporary rooms
+
+Click **Join voice** to grant microphone access. Voice starts only after this action. Participants can mute/unmute, reconnect, or leave voice while continuing to watch. Use headphones to avoid echo. If browser autoplay blocks incoming audio, an **Enable voice audio** button appears. Microphone tracks and peer connections close on leaving the room, ending it, or automatic expiry. A permission request still pending when the room closes is discarded and its tracks stopped.
+
+Rooms last **four hours from creation**; joining, refreshing, and host changes do not extend them. The server rejects room commands, signaling, and chat after `expires_at`. The visible countdown uses the server-adjusted clock; reaching zero stops playback and voice and replaces the room with an ended screen. Existing database policies already enforce expiry, so this update needs no schema migration. Expiry disables access; stored room/chat rows are removed by the separate maintenance job below.
+
+Voice uses the existing `baithak_signals` table, Realtime events, and a polling fallback. Signaling includes per-join session IDs to ignore stale offers after reconnecting. Audio is not recorded. Free STUN works on many networks; restrictive NAT/firewalls can require TURN. Set `VITE_ICE_SERVERS` to a JSON array of browser-visible ICE server configuration if you operate a relay. Do not put privileged or long-lived server secrets there. No paid voice provider is required, but peer-to-peer connectivity cannot be guaranteed on every network without a relay.
 
 ## Stack and synchronization
 
@@ -44,6 +52,7 @@ npm run build
 | `VITE_SUPABASE_URL` | Supabase project URL |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | Public browser key (`sb_publishable_…`) |
 | `VITE_YOUTUBE_API_KEY` | Optional referrer-restricted YouTube Data API key for inline keyword search |
+| `VITE_ICE_SERVERS` | Optional JSON ICE server list for voice; defaults to free Cloudflare STUN |
 
 Never put service-role keys, database passwords, or secret keys in `VITE_` variables. Deployed configuration takes precedence over browser-local settings. Operator settings are at `/?setup=1`; guests never need them.
 

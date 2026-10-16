@@ -21,6 +21,6 @@ export function StreamVideo({stream,muted=false,className='',controls=false}:{st
 export function RemoteAudio({stream}:{stream:MediaStream}) {
   const ref=useRef<HTMLAudioElement>(null);
   const [blocked,setBlocked]=useState(false);
-  useEffect(()=>{const el=ref.current;if(!el)return;el.srcObject=stream;void el.play().catch(()=>setBlocked(true));return()=>{el.srcObject=null;};},[stream]);
-  return <><audio ref={ref} autoPlay/>{blocked && <button className="audio-unlock" onClick={()=>void ref.current?.play().then(()=>setBlocked(false))}><Volume2 size={13}/> Enable voice audio</button>}</>;
+  useEffect(()=>{const el=ref.current;if(!el)return;el.srcObject=stream;const play=()=>{void el.play().then(()=>setBlocked(false)).catch(()=>setBlocked(true));};if(stream.getAudioTracks().length)play();stream.addEventListener('addtrack',play);return()=>{stream.removeEventListener('addtrack',play);el.pause();el.srcObject=null;};},[stream]);
+  return <><audio ref={ref} autoPlay onPlaying={()=>setBlocked(false)}/>{blocked && <button className="audio-unlock" onClick={()=>void ref.current?.play().then(()=>setBlocked(false)).catch(()=>setBlocked(true))}><Volume2 size={13}/> Enable voice audio</button>}</>;
 }

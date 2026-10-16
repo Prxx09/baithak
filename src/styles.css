@@ -37,6 +37,16 @@
 .watch-page .text-button,.sample-video{min-height:40px}
 .watch-scrubber{min-height:32px}
 .watch-scrubber input{height:28px}
+.room-lifetime{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12px;color:#a7b59f;margin:0 0 18px;padding:12px 15px;border:1px solid #35412f;border-radius:10px;background:#1a2119;font-variant-numeric:tabular-nums}
+.room-lifetime>span:last-child{margin-left:auto;color:#8c9c85}.room-lifetime.ending{color:#f5c48a;border-color:#7b5e35;background:#2c241a}
+.voice-chat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;padding:18px;margin-bottom:22px;border:1px solid #465044;border-radius:12px;background:linear-gradient(120deg,#20291f,#1b2024)}
+.voice-chat-copy{display:flex;align-items:center;gap:12px;flex:1;min-width:200px}.voice-chat h3{font-size:15px;margin:0 0 5px}.voice-chat p{font-size:12px;color:#a4b49e;margin:0;line-height:1.5}
+.voice-icon{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:#31382e;color:#bac7b0;flex-shrink:0}.voice-icon.active{color:var(--lime);box-shadow:0 0 22px #c4f47719}
+.voice-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.voice-actions .button{min-height:44px;font-size:12px;padding:10px 14px}.voice-actions .icon-button{width:44px;height:44px}
+.voice-members{display:flex;flex-wrap:wrap;gap:8px;width:100%}.voice-member{display:inline-flex;align-items:center;gap:6px;overflow-wrap:anywhere;border:1px solid #526047;background:#293325;border-radius:20px;padding:8px 11px;font-size:12px}.voice-member small{font-size:10px;color:#a8b99f}
+.voice-chat .voice-tip{font-size:11px;width:100%;color:#9ba994}.voice-chat .voice-error{width:100%;color:#f1b6af}.voice-chat .audio-unlock{position:static;min-height:44px;font-size:12px;padding:9px 12px}
+.room-ended{min-height:70vh;display:flex;align-items:flex-start;justify-content:center;flex-direction:column;gap:20px}.room-ended h1{margin:0;font-family:Manrope,sans-serif;font-size:clamp(28px,5vw,48px)}.room-ended p{max-width:570px;color:#a1ad9b;margin:0}
+@media(max-width:650px){.voice-chat{padding:15px;gap:15px}.voice-actions{width:100%}.voice-actions .button{flex:1;white-space:normal}.voice-chat-copy{min-width:0}.room-lifetime>span:last-child{width:100%;margin-left:22px;font-size:11px}.voice-member{font-size:11px;max-width:100%}}
 
 @media(max-width:850px){
   .hero{grid-template-columns:minmax(0,1fr);gap:32px;padding-top:30px}

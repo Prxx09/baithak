@@ -7,6 +7,8 @@ import { WatchSession } from '../lib/watch';
 import { playlistPage } from '../lib/discovery';
 import type { Snapshot } from '../lib/types';
 import { YouTubePlayer,type PlayerHandle } from './YouTubePlayer';
+import { VoiceChat } from './VoiceChat';
+import { RoomLifetime } from './RoomLifetime';
 
 function emptyWatch(roomId:string,host:string):WatchState{return {playback:{room_id:roomId,host_id:host,host_epoch:1,video_epoch:0,revision:0,video_id:null,video_title:'',playback_state:'paused',position_seconds:0,playback_rate:1,autoplay_enabled:true,autoplay_next:null,recently_played:[],playlist_id:null,playlist_page_token:null,updated_at:new Date().toISOString()},queue:[],server_now:new Date().toISOString()};}
 export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId:string;demo:boolean;onLeave:()=>void}){
@@ -25,6 +27,8 @@ export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId
   const [playerPlaying,setPlayerPlaying]=useState(false);
   const [playerGeneration,setPlayerGeneration]=useState(0);
   const [status,setStatus]=useState('Ready'),[transport,setTransport]=useState(demo?'Local preview':'Connecting');
+  const [ended,setEnded]=useState<'expired'|'session'|'closed'|null>(null);
+  const [leaving,setLeaving]=useState(false);
   const chatEnd=useRef<HTMLDivElement>(null);
   const [autoBusy,setAutoBusy]=useState(false),[discoveryError,setDiscoveryError]=useState('');
   const playlistRequest=useRef<{key:string;promise:Promise<WatchState|null>}|null>(null);
@@ -37,9 +41,10 @@ export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId
   const roomCode=initial.room.invite_code;
   const invite=`${location.origin}/?room=${roomCode}`;
   function now(){return session.current?.clock.now()||Date.now();}
+  function endLocally(){session.current?.close();player.current?.pause();setEnded('expired');}
   function accept(next:WatchState){watchRef.current=next;setWatch(next);}
   useEffect(()=>{
-    if(demo)return;
+    if(demo||ended)return;
     let alive=true,refreshing=false;
     const connected=new WatchSession(backend(),roomCode,initial.room.id,state=>{if(alive){accept(state);setTransport('Following the room');}},message=>{if(alive){setError(friendlyError(new Error(message)));setTransport('Reconnecting');}});
     session.current=connected;
@@ -47,16 +52,16 @@ export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId
     async function refresh(){
       if(refreshing)return;refreshing=true;
       try{const next=await command('heartbeat',roomCode);if(alive)setSnapshot(next);}
-      catch(e){if(alive){setError(friendlyError(e));if(/ended|expired|invalid/i.test(friendlyError(e))){connected.close();player.current?.pause();setTransport('Room ended');}}}
+      catch(e){if(alive){setError(friendlyError(e));if(/ended|expired|invalid/i.test(friendlyError(e))){connected.close();player.current?.pause();setEnded(/session expired/i.test(friendlyError(e))?'session':'closed');}}}
       finally{refreshing=false;}
     }
-    void refresh();const timer=setInterval(()=>void refresh(),12000);
+    void refresh();const timer=setInterval(()=>void refresh(),5000);
     const chat=backend().channel(`watch-chat:${initial.room.id}`).on('postgres_changes',{event:'INSERT',schema:'public',table:'baithak_chat',filter:`room_id=eq.${initial.room.id}`},()=>void refresh()).subscribe();
     const restore=()=>{if(document.visibilityState==='visible'){void refresh();void connected.read().then(()=>player.current?.resync()).catch(e=>{if(alive)setError(friendlyError(e));});}};
     const networkRestore=()=>{void connected.read().then(()=>player.current?.resync()).catch(e=>{if(alive)setError(friendlyError(e));});};
     document.addEventListener('visibilitychange',restore);window.addEventListener('online',networkRestore);
     return ()=>{alive=false;clearInterval(timer);connected.close();session.current=null;void backend().removeChannel(chat);document.removeEventListener('visibilitychange',restore);window.removeEventListener('online',networkRestore);};
-  },[demo,initial.room.id,roomCode]);
+  },[demo,ended,initial.room.id,roomCode]);
   useEffect(()=>{chatEnd.current?.scrollIntoView({block:'nearest',behavior:'smooth'});},[snapshot.messages.length,panel]);
 
   async function action(name:string,payload:Record<string,unknown>={}){
@@ -150,7 +155,8 @@ export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId
   async function copy(){try{await navigator.clipboard.writeText(invite);setCopied(true);setTimeout(()=>setCopied(false),2000);}catch{setNotice(`Share this invitation: ${invite}`);}}
   async function leave(end=false){
     if(end&&!confirm('End this baithak for everyone?'))return;
-    try{if(!demo)await command(end?'end':'leave',roomCode);}catch(e){setError(friendlyError(e));if(end)return;}
+    setLeaving(true);
+    try{if(!demo)await command(end?'end':'leave',roomCode);}catch(e){setError(friendlyError(e));if(end){setLeaving(false);return;}}
     session.current?.close();onLeave();
   }
   async function send(e:React.FormEvent){
@@ -163,13 +169,16 @@ export function WatchRoom({initial,userId,demo,onLeave}:{initial:Snapshot;userId
   }
   function takeNext(){fire('next',player.current?.sample() as unknown as Record<string,unknown>||{});}
   function commitSeek(){if(seekValue.current!==null){player.current?.seek(seekValue.current);seekValue.current=null;setSeek(null);}}
+  if(ended)return <main className="wrap room-ended"><span className="eyebrow">{ended==='session'?'YOUR SESSION HAS ENDED':'THIS BAITHAK HAS ENDED'}</span><h1>Good company. Until next time.</h1><p>{ended==='expired'?'This temporary room reached its four-hour limit. Playback and voice have stopped, and the invitation has expired.':ended==='session'?'Your connection was inactive for too long. Playback and voice have stopped. You can rejoin with the invitation if the room is still open.':'This room is no longer available. Playback and voice have stopped. Create a fresh room to keep hanging out.'}</p><button className="button primary" onClick={onLeave}>Back to rooms <ArrowUpRight size={17}/></button></main>;
   return <main className="watch-page wrap">
     {demo?<div className="preview-banner"><span><Music2 size={14}/> Local player preview · Try a YouTube link. No remote guests are connected.</span><button onClick={onLeave}>Create a real room <ArrowUpRight size={14}/></button></div>:null}
+    {!demo&&<RoomLifetime expiresAt={snapshot.room.expires_at} now={now} onExpire={endLocally}/>}
     <div className="room-heading"><div><div className="room-eyebrow"><span className="green-dot"/> A LITTLE CLOSER, ONE SONG AT A TIME</div><h1>{snapshot.room.title}<span className="room-hindi">बैठक</span></h1><p><Shield size={12}/> Invite-only room <span>·</span> No sign-in <span>·</span> {transport}</p></div><div className="room-header-actions"><button className="button secondary" aria-expanded={people} onClick={()=>setPeople(!people)}><Users size={15}/>{snapshot.members.length} here <ChevronDown size={12}/></button><button disabled={demo} className="button primary" onClick={()=>void copy()}>{copied?<Check size={15}/>:<Copy size={15}/>} {copied?'Link copied':'Invite your people'}</button><button className="icon-button" aria-label="Room options" aria-expanded={options} onClick={()=>setOptions(!options)}><MoreHorizontal size={20}/></button></div></div>
     {error?<div className="notice error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError('')}><X size={16}/></button></div>:null}
     {notice?<div className="notice" role="status">{notice}<button aria-label="Dismiss notice" onClick={()=>setNotice('')}><X size={16}/></button></div>:null}
     {people?<section className="watch-people"><div><strong>Your people</strong><span>One host keeps everyone in sync.</span></div>{snapshot.members.map((m,index)=><div className="watch-person" key={m.user_id}><span className={`person-avatar color-${index%4}`}>{m.display_name[0].toUpperCase()}</span><div><strong>{m.display_name}{m.user_id===userId?' (you)':''}</strong><small>{m.user_id===p?.host_id?'Host':m.requested?'Wants to host next':'Following the host'}</small></div>{isHost&&m.user_id!==userId?<button className="button secondary" onClick={()=>fire('transfer',{host_id:m.user_id})}>Make host</button>:m.user_id===p?.host_id?<Crown size={15}/>:null}</div>)}</section>:null}
     {options?<div className="room-settings"><button className="button secondary" onClick={()=>{void session.current?.read().then(()=>player.current?.resync()).catch(e=>setError(friendlyError(e)));player.current?.resync();}}>Resync player</button><button className="button secondary" onClick={()=>setPlayerGeneration(n=>n+1)}>Reload player</button>{snapshot.room.owner_id===userId&&!demo?<button className="button danger" onClick={()=>void leave(true)}>End room for everyone</button>:null}<p>Only the host changes the room’s playback. Your volume and fullscreen controls are personal.</p></div>:null}
+    {!leaving&&<VoiceChat roomId={initial.room.id} userId={userId} members={snapshot.members} demo={demo}/>}
     <div className="watch-layout"><section className="watch-main"><div className="watch-stage"><div className="stage-top"><span><span className="status-dot live"/>{isHost?'YOU’RE THE HOST':`${host?.display_name||'The host'} CONTROLS PLAYBACK`}</span><span>{status}</span></div><YouTubePlayer key={playerGeneration} ref={player} playback={p} isHost={isHost} hasQueuedNext={!!watch?.queue.length||!!(p?.playlist_id&&p.playlist_page_token!=null)} serverNow={now} onCommand={fire} onProgress={(position,duration)=>{setPosition(position);setDuration(duration);if(position>5)skipFailures.current=0;}} onPlayingChange={setPlayerPlaying} onStatus={setStatus} onError={setError} onUnavailable={id=>{if(isHost&&id===watchRef.current?.playback.video_id&&skipFailures.current<3&&(watchRef.current.queue.length||!!(p?.playlist_id&&p?.playlist_page_token!=null))){skipFailures.current++;setNotice('This video is unavailable. Trying the next one…');fire('next',{from_video_epoch:p?.video_epoch});}}}/>
       <div className="watch-now"><div><span className="eyebrow">{p?.video_id?'NOW PLAYING':'YOUR NEXT SHARED MOMENT'}</span><h2>{p?.video_title||'Good company. Great videos.'}</h2></div>{p?.video_id?<a className="icon-button" href={`https://www.youtube.com/watch?v=${p.video_id}`} target="_blank" rel="noreferrer" aria-label="Open current video on YouTube"><ExternalLink size={16}/></a>:<span className="watch-note">बैठक</span>}</div>
       <div className="watch-transport"><div className="watch-scrubber"><span>{timeLabel(seek??position)}</span><input aria-label="Video position" type="range" min="0" max={duration||1} step="0.1" value={Math.min(seek??position,duration||1)} disabled={!isHost||!p?.video_id} onChange={e=>{seekValue.current=Number(e.target.value);setSeek(seekValue.current);}} onPointerUp={commitSeek} onPointerCancel={commitSeek} onKeyUp={commitSeek} onBlur={commitSeek}/><span>{timeLabel(duration)}</span></div><div className="watch-buttons"><div className="playback-buttons"><button className="icon-button" aria-label="Back 10 seconds" title="Back 10 seconds" disabled={!isHost||!p?.video_id} onClick={()=>player.current?.seek(Math.max(0,position-10))}><SkipBack size={18}/><span>10</span></button><button className="watch-play" aria-label={playerPlaying?'Pause for everyone':'Play for everyone'} disabled={!isHost||!p?.video_id} onClick={()=>playerPlaying?player.current?.pause():player.current?.play()}>{playerPlaying?<Pause size={21} fill="currentColor"/>:<Play size={21} fill="currentColor"/>}</button><button className="icon-button" aria-label="Forward 10 seconds" title="Forward 10 seconds" disabled={!isHost||!p?.video_id} onClick={()=>player.current?.seek(Math.min(duration||Infinity,position+10))}><SkipForward size={18}/><span>10</span></button><button className="icon-button next-video" aria-label="Play next video" title="Next video" disabled={!isHost||autoBusy||(!watch?.queue.length&&!(p?.playlist_id&&p.playlist_page_token!=null))} onClick={takeNext}>{autoBusy?<LoaderCircle className="spin" size={19}/>:<ListMusic size={19}/>}</button></div><div className="watch-sync-actions"><select aria-label="Playback speed" disabled={!isHost||!p?.video_id} value={p?.playback_rate||1} onChange={e=>player.current?.rate(Number(e.target.value))}>{[0.5,0.75,1,1.25,1.5,1.75,2].map(rate=><option value={rate} key={rate}>{rate}×</option>)}</select><button className="text-button" disabled={!p?.video_id} onClick={()=>player.current?.resync()}><RefreshCw size={13}/> Resync</button></div></div>{((!isHost||status==='Click Start watching')&&p?.video_id)?<div className="watch-guest"><span><Crown size={12}/> {isHost?'Your browser needs one tap to start audio.':`Following ${host?.display_name||'the host'}. Local changes resync automatically.`}</span><button className="button secondary" onClick={()=>player.current?.start()}><Play size={13}/> Start watching</button></div>:null}</div></div>

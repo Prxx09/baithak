@@ -37,4 +37,15 @@ describe('room authorization and broadcaster ownership',()=>{
     await db.exec('reset role');await db.query("update public.baithak_rooms set lease_until=now()-interval '1 second' where id=$1",[room]);await asUser(0);expect((await call('claim')).room.active_sharer).toBe(ids[0]);
   });
   it('only lets the creator end a room',async()=>{await asUser(1);await expect(call('end')).rejects.toThrow('Only the room creator');await asUser(0);await call('end');await asUser(1);await expect(call('heartbeat')).rejects.toThrow('ended');});
+  it('creates a fixed four-hour deadline and rejects joins, heartbeats, chat, and voice after expiry',async()=>{
+    await asUser(0);const s=await call('create','');room=s.room.id;code=s.room.invite_code;
+    const before=await db.query<{hours:number}>("select extract(epoch from(expires_at-created_at))/3600 as hours from public.baithak_rooms where id=$1",[room]);
+    expect(Number(before.rows[0].hours)).toBe(4);
+    await asUser(1);await call('join');
+    await db.exec('reset role');await db.query("update public.baithak_rooms set expires_at=now()-interval '1 second' where id=$1",[room]);await asUser(1);
+    await expect(call('join')).rejects.toThrow('ended');await expect(call('heartbeat')).rejects.toThrow('ended');
+    await expect(db.query('insert into public.baithak_chat(room_id,sender_id,body) values($1,$2,$3)',[room,ids[1],'expired'])).rejects.toThrow('row-level security');
+    await expect(db.query('insert into public.baithak_signals(room_id,sender_id,receiver_id,payload) values($1,$2,$3,$4)',[room,ids[1],ids[0],{scope:'voice',hello:true}])).rejects.toThrow('row-level security');
+    expect((await db.query('select * from public.baithak_rooms')).rows).toHaveLength(0);
+  });
 });
