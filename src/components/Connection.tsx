@@ -11,5 +11,5 @@ export function Connection({onClose}:{onClose:()=>void}) {
     <p className="small">Use a publishable key only. Never paste a service role key, database password, or secret key.</p>
     {error && <div className="notice error" role="alert">{error}</div>}
     <button className="button primary full" type="submit"><Check size={17}/> Save connection</button></form>
-    <div className="setup-steps"><strong>Project owner setup</strong><ol><li>Run <a href="https://github.com/Prxx09/baithak/blob/main/supabase/schema.sql" target="_blank" rel="noreferrer">supabase/schema.sql <ExternalLink size={11}/></a> in the SQL Editor.</li><li>Enable Anonymous Sign-Ins in Authentication.</li><li>Set the public URL and key in Vercel for all guests to use the same backend.</li></ol></div></section></div>;
+    <div className="setup-steps"><strong>Project owner setup</strong><ol><li>Run <a href="https://github.com/Prxx09/baithak/blob/main/supabase/setup.sql" target="_blank" rel="noreferrer">supabase/setup.sql <ExternalLink size={11}/></a> in the SQL Editor.</li><li>Enable Anonymous Sign-Ins in Authentication.</li><li>Set the public URL and key in Vercel for all guests to use the same backend.</li></ol></div></section></div>;
 }

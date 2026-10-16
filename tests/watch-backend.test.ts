@@ -1,0 +1,33 @@
+import { beforeAll,afterAll,describe,it,expect } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
+import { readFileSync } from 'node:fs';
+const db=new PGlite();
+const ids=['00000000-0000-4000-8000-000000000011','00000000-0000-4000-8000-000000000012','00000000-0000-4000-8000-000000000013'];
+let code='',room='';
+type State={playback:{room_id:string;host_id:string;host_epoch:number;video_epoch:number;revision:number;video_id:string;video_title:string;position_seconds:number;playback_state:string;playback_rate:number};queue:{id:number;video_id:string}[];server_now:string};
+let state:State;
+async function user(i:number){await db.exec(`reset role;set "request.jwt.claim.sub"='${ids[i]}';set role authenticated;`);}
+async function watch(action='read',payload:Record<string,unknown>={},revision=state?.playback.revision,epoch=state?.playback.host_epoch){
+  const result=await db.query<{data:State}>('select public.baithak_watch($1,$2,$3,$4,$5) as data',[code,action,payload,revision??null,epoch??null]);state=result.rows[0].data;return state;
+}
+beforeAll(async()=>{
+  await db.exec(`create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid; $$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;create publication supabase_realtime;`);
+  for(const id of ids)await db.query('insert into auth.users values($1)',[id]);
+  await db.exec(readFileSync('supabase/schema.sql','utf8'));await db.exec(readFileSync('supabase/youtube-sync.sql','utf8'));
+  await user(0);const r=await db.query<{data:{room:{id:string;invite_code:string}}}>("select public.baithak_command('create','','Owner','Music night') as data");room=r.rows[0].data.room.id;code=r.rows[0].data.room.invite_code;
+  await user(1);await db.query("select public.baithak_command('join',$1,'Friend','')",[code]);
+},30000);
+afterAll(async()=>await db.close());
+describe('synchronized watch room backend',()=>{
+  it('initializes with the room creator as host even if a guest reads first',async()=>{await watch();expect(state.playback.host_id).toBe(ids[0]);expect(state.server_now).toBeTruthy();});
+  it('does not allow guests to publish host commands or write the state directly',async()=>{await expect(watch('load',{video_id:'M7lc1UVf-VE',title:'Demo'})).rejects.toThrow('Only the current host');await expect(db.query('update public.baithak_playback set position_seconds=123 where room_id=$1',[room])).rejects.toThrow('permission denied');});
+  it('loads a video and moves its timeline forward',async()=>{await user(0);await watch('load',{video_id:'M7lc1UVf-VE',title:'Demo'});expect(state.playback.video_id).toBe('M7lc1UVf-VE');expect(state.playback.playback_state).toBe('playing');expect(state.playback.video_epoch).toBe(1);});
+  it('seeks, pauses, changes speed, and resumes without changing videos',async()=>{await watch('seek',{position:70});expect(state.playback.position_seconds).toBe(70);await watch('pause',{position:72});expect(state.playback.playback_state).toBe('paused');await watch('rate',{position:72,rate:1.5});expect(state.playback.playback_rate).toBe(1.5);await watch('play',{position:72});expect(state.playback.playback_state).toBe('playing');});
+  it('rejects stale commands rather than overwriting newer state',async()=>{await expect(watch('seek',{position:4},0)).rejects.toThrow('STALE_REVISION');});
+  it('lets guests add videos and lets the host advance the queue atomically',async()=>{await user(1);await watch('enqueue',{video_id:'aqz-KE-bpKQ',title:'Next video'});expect(state.queue).toHaveLength(1);await user(0);await watch('next',{title:'Old video title'});expect(state.playback.video_title).toBe('Next video');expect(state.playback.video_id).toBe('aqz-KE-bpKQ');expect(state.playback.position_seconds).toBe(0);expect(state.queue).toHaveLength(0);});
+  it('restarts a repeated video using a new video epoch',async()=>{const old=state.playback.video_epoch;await watch('load',{video_id:'aqz-KE-bpKQ',title:'Again'});expect(state.playback.video_epoch).toBe(old+1);});
+  it('plays a selected queue item and removes only that item',async()=>{await watch('enqueue',{video_id:'M7lc1UVf-VE',title:'First'});const first=state.queue[0].id;await watch('enqueue',{video_id:'aqz-KE-bpKQ',title:'Second'});await watch('play_item',{id:state.queue[1].id});expect(state.queue.map(q=>q.id)).toEqual([first]);expect(state.playback.video_id).toBe('aqz-KE-bpKQ');});
+  it('limits queue mutation and hides state from outsiders',async()=>{await user(1);await expect(watch('remove',{id:state.queue[0].id})).rejects.toThrow('Only the host');await user(2);await expect(watch()).rejects.toThrow('expired');expect((await db.query('select * from public.baithak_playback')).rows).toHaveLength(0);});
+  it('transfers host authority and rejects delayed commands from the old host',async()=>{await user(0);const oldEpoch=state.playback.host_epoch;await watch('transfer',{host_id:ids[1]});expect(state.playback.host_id).toBe(ids[1]);expect(state.playback.host_epoch).toBe(oldEpoch+1);await expect(watch('pause',{position:1})).rejects.toThrow('Only the current host');await user(1);await expect(watch('pause',{position:1},state.playback.revision,oldEpoch)).rejects.toThrow('HOST_CHANGED');await watch('pause',{position:12});expect(state.playback.position_seconds).toBe(12);});
+  it('recovers hosting when the previous host leaves',async()=>{await db.query("select public.baithak_command('leave',$1)",[code]);await user(0);await watch();expect(state.playback.host_id).toBe(ids[0]);});
+});

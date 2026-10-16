@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowUpRight, Code2, Settings2 } from 'lucide-react';
 import { Landing } from './components/Landing';
-import { Room } from './components/Room';
+import { WatchRoom as Room } from './components/WatchRoom';
 import { Connection } from './components/Connection';
 import type { Snapshot } from './lib/types';
 import { getConfig } from './lib/config';

@@ -25,7 +25,7 @@ export function parseRoomCode(value: string): string {
 export function friendlyError(error: unknown): string {
   const message = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String(error.message) : 'Something went wrong. Please try again.';
   if (/anonymous.*disabled|anonymous.*not enabled/i.test(message)) return 'Rooms are not ready yet. The app owner needs to finish guest access setup. You do not need an account or password.';
-  if (/schema cache|baithak_command.*not|does not exist/i.test(message)) return 'Rooms are not ready yet. The app owner needs to finish the room backend setup. Please try again later.';
+  if (/schema cache|baithak_(command|watch).*not|does not exist/i.test(message)) return 'Rooms are not ready yet. The app owner needs to finish the room backend setup. Please try again later.';
   if (/permission denied|row-level security/i.test(message)) return 'Room access was denied. Rejoin using the invitation link.';
   if (/NotAllowedError|Permission denied/i.test(message)) return 'Permission was declined. Try again and allow the selected device or screen.';
   return message;
