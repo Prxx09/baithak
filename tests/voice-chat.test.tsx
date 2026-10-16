@@ -42,3 +42,12 @@ it('stops capture immediately when leaving during membership renewal', async () 
   await act(async () => root.render(null)); expect(stop).toHaveBeenCalled();
   await act(async () => resolve(members)); expect(media.start).not.toHaveBeenCalled();
 });
+it('controls incoming sound independently of the microphone and offers audio settings', async () => {
+  await act(async () => root.render(<VoiceChat roomId="room" userId="you" members={members} demo={false}/>));
+  await act(async () => button('Join voice').click());
+  await act(async () => button('Sound on').click());
+  expect(track.enabled).toBe(true); expect(button('Sound off').getAttribute('aria-pressed')).toBe('false');
+  await act(async () => mount.querySelector<HTMLButtonElement>('[aria-label="Audio settings"]')!.click());
+  expect(mount.querySelector('[aria-label="Voice volume"]')).toBeTruthy();
+  expect(mount.textContent).toContain('Speaker, earpiece and Bluetooth');
+});

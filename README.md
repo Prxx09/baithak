@@ -12,12 +12,15 @@
 - Everyone can add videos (up to 30). Only the host or the person who added an item can remove it. Playing a selected queue item consumes it atomically.
 - The creator starts as host and can pass control. Guests can request to host. Departed/inactive hosts are replaced by the server.
 - Six people total, invitation links, text chat, optional live voice, room expiration, owner end-room, and an explicit local player preview.
+- Phone shortcuts for Watch / Voice / Chat / Queue, local speaking highlights, independent incoming voice sound/volume, an audio-output picker where supported, quick emoji reactions, and expiring typing indicators. Chat keeps your reading position and shows unread messages.
 
 This version replaces the meeting/screen-sharing interface. Each device loads the same YouTube video and follows the room timeline. Optional voice uses audio-only WebRTC between participants; Supabase carries membership-protected signaling and never receives microphone audio. Original screen-sharing components remain in source but are not mounted.
 
 ## Live voice and temporary rooms
 
 Click **Join voice** to grant microphone access. Voice starts only after this action. Participants can mute/unmute, reconnect, or leave voice while continuing to watch. Use headphones to avoid echo. If browser autoplay blocks incoming audio, an **Enable voice audio** button appears. Microphone tracks and peer connections close on leaving the room, ending it, or automatic expiry. A permission request still pending when the room closes is discarded and its tracks stopped.
+
+Speaking rings use live audio energy measured locally with one shared AudioContext. The meter never plays back your own microphone or uploads samples. Sound on/off affects incoming voice only. The audio-output picker depends on browser support; speaker/earpiece/Bluetooth routing and iPhone volume may require phone controls. Typing events share a boolean only, never draft text. Reactions and typing use the existing membership-protected signal table, with throttling, local expiry, and the existing signal cleanup. See [the mobile/social code review](docs/mobile-social-review.md) for fixes and remaining verification.
 
 Rooms last **four hours from creation**; joining, refreshing, and host changes do not extend them. The server rejects room commands, signaling, and chat after `expires_at`. The visible countdown uses the server-adjusted clock; reaching zero stops playback and voice and replaces the room with an ended screen. Existing database policies already enforce expiry, so this update needs no schema migration. Expiry disables access; stored room/chat rows are removed by the separate maintenance job below.
 

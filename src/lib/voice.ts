@@ -22,7 +22,7 @@ export class VoiceSession {
   private processed = new Set<number>();
   private session = crypto.randomUUID();
   private started = Date.now();
-  private cursor = new Date(this.started - 1000).toISOString();
+  private cursor = 0;
   private closed = false;
   private pulling = false;
   private track: MediaStreamTrack | null = null;
@@ -85,10 +85,10 @@ export class VoiceSession {
     if (this.closed || this.pulling) return;
     this.pulling = true;
     try {
-      const { data, error } = await this.db.from('baithak_signals').select('*').eq('room_id', this.roomId).eq('receiver_id', this.userId).gt('created_at', this.cursor).order('id').limit(1000);
+      const { data, error } = await this.db.from('baithak_signals').select('*').eq('room_id', this.roomId).eq('receiver_id', this.userId).gt('id', this.cursor).order('id').limit(1000);
       if (error) throw error;
       for (const row of data || []) this.receive(row as Row);
-      if (data?.length) this.cursor = new Date(Date.parse(data[data.length - 1].created_at) - 1000).toISOString();
+      if (data?.length) this.cursor = data[data.length - 1].id;
     } catch { /* Realtime is the fast path; polling retries after transient connection loss. */ }
     finally { this.pulling = false; }
   }
