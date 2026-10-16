@@ -2,11 +2,16 @@ export interface Playback {
   room_id:string; host_id:string; host_epoch:number; video_epoch:number; revision:number; video_id:string|null;
   video_title:string; playback_state:'playing'|'paused'; position_seconds:number;
   playback_rate:number; updated_at:string;
+  autoplay_enabled?:boolean; autoplay_next?:{video_id:string;title:string}|null;
+  recently_played?:string[]; playlist_id?:string|null; playlist_page_token?:string|null;
 }
 export interface QueueItem { id:number; video_id:string; title:string; added_by:string; }
 export interface WatchState { playback:Playback; queue:QueueItem[]; server_now:string; }
 export interface VideoChoice { id:string; title:string; channel?:string; }
 const VIDEO_ID=/^[A-Za-z0-9_-]{11}$/;
+export function playlistId(value:string):string|null {
+  try{const url=new URL(value.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be'].includes(url.hostname))return null;const id=url.searchParams.get('list');return id&&/^[A-Za-z0-9_-]{10,120}$/.test(id)?id:null;}catch{return null;}
+}
 export function videoId(value:string):string|null {
   const text=value.trim(); if(VIDEO_ID.test(text))return text;
   try{
