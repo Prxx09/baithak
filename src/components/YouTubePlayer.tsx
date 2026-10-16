@@ -129,5 +129,5 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
   },[!!props.playback?.video_id]);
   useEffect(()=>{apply();},[props.playback?.revision]);
   useEffect(()=>{if(ready.current)apply(true);},[props.playback?.host_epoch]);
-  return <div className="yt-player-shell"><div ref={mount} className="yt-player-mount"/>{!props.playback?.video_id?<div className="yt-empty"><span className="yt-empty-icon"><MonitorPlay size={49} strokeWidth={1.2}/></span><span className="eyebrow">YOUR PEOPLE. SAME PLAYLIST.</span><h2>What’s the first song?</h2><p>Paste a YouTube link or pick a video.<br/>The host presses play. Everyone follows.</p></div>:null}{loading?<div className="yt-loading"><LoaderCircle className="spin" size={22}/> Connecting to YouTube…</div>:null}</div>;
+  return <div className="yt-player-shell"><div ref={mount} className="yt-player-mount"/>{!props.playback?.video_id?<div className="yt-empty"><span className="yt-empty-icon"><MonitorPlay size={49} strokeWidth={1.2}/></span><span className="eyebrow">YOUR PEOPLE. SAME MOMENT.</span><h2>What’s the first video?</h2><p>Paste a YouTube link or pick a video.<br/>The host presses play. Everyone follows.</p></div>:null}{loading?<div className="yt-loading"><LoaderCircle className="spin" size={22}/> Connecting to YouTube…</div>:null}</div>;
 });
