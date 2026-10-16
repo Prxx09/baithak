@@ -28,6 +28,7 @@ interface Props {
   hasQueuedNext?:boolean;
   onCommand:(action:string,payload:Record<string,unknown>)=>void;
   onProgress:(position:number,duration:number)=>void;
+  onPlayingChange?:(playing:boolean)=>void;
   onStatus:(status:string)=>void;onError:(message:string)=>void;onUnavailable?:(videoId:string)=>void;
 }
 export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer(props,ref){
@@ -35,15 +36,24 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
   const latest=useRef(props);latest.current=props;
   const loadedEpoch=useRef(-1);
   const loaded=useRef(''),suppressed=useRef(0),ended=useRef('');
+  const pendingNativeVideo=useRef('');
   const ready=useRef(false),previous=useRef({position:0,wall:0,state:-1});
   const lastTick=useRef(0);
   const [loading,setLoading]=useState(false);
-  function sample():PlayerSample{if(!ready.current){const p=latest.current.playback;return {position:p?expectedPosition(p,latest.current.serverNow()):0,rate:p?.playback_rate||1,state:p?.playback_state||'paused',sampled_at_ms:latest.current.serverNow()};}return {position:player.current?.getCurrentTime()||0,rate:player.current?.getPlaybackRate()||1,state:latest.current.playback?.playback_state||'paused',sampled_at_ms:latest.current.serverNow(),title:player.current?.getVideoData()?.title||undefined};}
+  function sample():PlayerSample{if(!ready.current){const p=latest.current.playback;return {position:p?expectedPosition(p,latest.current.serverNow()):0,rate:p?.playback_rate||1,state:p?.playback_state||'paused',sampled_at_ms:latest.current.serverNow()};}return {position:player.current?.getCurrentTime()||0,rate:player.current?.getPlaybackRate()||1,state:player.current?.getPlayerState()===1?'playing':'paused',sampled_at_ms:latest.current.serverNow(),title:player.current?.getVideoData()?.title||undefined};}
   function emit(action:string,extra:Record<string,unknown>={}){latest.current.onCommand(action,{...sample(),...extra});}
   function apply(force=false){
     const p=latest.current.playback,yt=player.current;if(!ready.current||!yt||!p?.video_id)return;
     const target=expectedPosition(p,latest.current.serverNow(),yt.getDuration()||Infinity);
     if(loaded.current!==p.video_id||loadedEpoch.current!==p.video_epoch){
+      // A host may choose a related video inside YouTube. When its server update
+      // returns, adopt the already-playing video instead of loading it again.
+      if(latest.current.isHost&&pendingNativeVideo.current===p.video_id&&yt.getVideoData()?.video_id===p.video_id){
+        loaded.current=p.video_id;loadedEpoch.current=p.video_epoch;ended.current='';
+        pendingNativeVideo.current='';
+        return;
+      }
+      pendingNativeVideo.current='';
       loaded.current=p.video_id;loadedEpoch.current=p.video_epoch;ended.current='';suppressed.current=performance.now()+1800;
       const config={videoId:p.video_id,startSeconds:target};
       if(p.playback_state==='playing')yt.loadVideoById(config);else yt.cueVideoById(config);
@@ -76,10 +86,11 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
     void loadAPI().then(api=>{
       if(disposed)return;
       player.current=new api.Player(element,{width:'100%',height:'100%',playerVars:{autoplay:1,playsinline:1,controls:1,origin:location.origin,rel:1},events:{
-        onReady:()=>{if(disposed)return;ready.current=true;setLoading(false);latest.current.onStatus('Ready');apply(true);},
+        onReady:()=>{if(disposed)return;ready.current=true;setLoading(false);latest.current.onPlayingChange?.(false);latest.current.onStatus('Ready');apply(true);},
         onStateChange:(event:{data:number})=>{
           if(disposed)return;
           const yt=player.current,p=latest.current.playback;
+          if(event.data===1||event.data===2||event.data===0||event.data===5)latest.current.onPlayingChange?.(event.data===1);
           latest.current.onStatus(event.data===3?'Buffering':event.data===1?'Playing':event.data===2?'Paused':'Ready');
           if(!yt||!p||yt.getVideoData()?.video_id!==p.video_id)return;
           if(event.data===1&&yt.getPlaybackRate()!==p.playback_rate){suppressed.current=performance.now()+1200;yt.setPlaybackRate(p.playback_rate);}
@@ -94,7 +105,7 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
           if(event.data===1||event.data===2)emit(event.data===1?'play':'pause',{state:event.data===1?'playing':'paused'});
         },
         onPlaybackRateChange:(event:{data:number})=>{if(latest.current.isHost&&performance.now()>suppressed.current)emit('rate',{rate:event.data});},
-        onAutoplayBlocked:()=>latest.current.onStatus('Click Start watching'),
+        onAutoplayBlocked:()=>{latest.current.onPlayingChange?.(false);latest.current.onStatus('Click Start watching');},
         onError:(event:{data:number})=>{latest.current.onError([101,150].includes(event.data)?'This video does not allow embedded playback.':event.data===100?'This video is unavailable or private.':`YouTube could not play this video (${event.data}). Try another video or reload the player.`);if([100,101,150].includes(event.data)&&latest.current.playback?.video_id)latest.current.onUnavailable?.(latest.current.playback.video_id);}
       }});
     }).catch(error=>{if(!disposed){setLoading(false);latest.current.onError(error.message);}});
@@ -102,9 +113,10 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
       const yt=player.current,p=latest.current.playback;if(!ready.current||!yt||!p?.video_id)return;
       const position=yt.getCurrentTime(),duration=yt.getDuration(),state=yt.getPlayerState(),wall=performance.now();
       latest.current.onProgress(position,duration);
+      if(state===1||state===2||state===0||state===5)latest.current.onPlayingChange?.(state===1);
       const actual=yt.getVideoData();
       if(latest.current.isHost&&actual?.video_id&&actual.video_id!==p.video_id&&wall>suppressed.current&&(state===1||state===2)){
-        emit('load',{video_id:actual.video_id,title:actual.title});suppressed.current=wall+1800;
+        pendingNativeVideo.current=actual.video_id;emit('load',{video_id:actual.video_id,title:actual.title});suppressed.current=wall+1800;
       }else if(latest.current.isHost&&actual?.video_id===p.video_id&&wall>suppressed.current){
         const prev=previous.current;
         const expected=prev.position+(prev.state===1?(wall-prev.wall)/1000*yt.getPlaybackRate():0);
@@ -113,7 +125,7 @@ export const YouTubePlayer=forwardRef<PlayerHandle,Props>(function YouTubePlayer
       }else if(!latest.current.isHost&&wall>suppressed.current&&wall-lastTick.current>3000){lastTick.current=wall;apply();}
       previous.current={position,wall,state};
     },250);
-    return ()=>{disposed=true;clearInterval(interval);ready.current=false;player.current?.destroy();player.current=null;loaded.current='';loadedEpoch.current=-1;element.remove();};
+    return ()=>{disposed=true;clearInterval(interval);ready.current=false;player.current?.destroy();player.current=null;loaded.current='';loadedEpoch.current=-1;pendingNativeVideo.current='';element.remove();};
   },[!!props.playback?.video_id]);
   useEffect(()=>{apply();},[props.playback?.revision]);
   useEffect(()=>{if(ready.current)apply(true);},[props.playback?.host_epoch]);
