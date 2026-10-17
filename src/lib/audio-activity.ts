@@ -3,12 +3,14 @@ export class AudioActivity {
   private context: AudioContext;
   private inputs = new Map<string, { stream: MediaStream; source: MediaStreamAudioSourceNode; analyser: AnalyserNode; data: Uint8Array<ArrayBuffer>; lastLoud: number; speaking: boolean }>();
   private timer: ReturnType<typeof setInterval>;
+  private closed = false;
   constructor(private changed: (id: string, speaking: boolean) => void) {
     this.context = new AudioContext();
     void this.context.resume().catch(() => {});
     this.timer = setInterval(() => this.sample(), 100);
   }
   attach(id: string, stream: MediaStream) {
+    if (this.closed) return;
     if (this.inputs.get(id)?.stream === stream) return;
     this.remove(id);
     if (!stream.getAudioTracks().length) return;
@@ -34,6 +36,6 @@ export class AudioActivity {
       if (speaking !== input.speaking) { input.speaking = speaking; this.changed(id, speaking); }
     }
   }
-  resume() { void this.context.resume().catch(() => {}); }
-  close() { clearInterval(this.timer); for (const id of this.inputs.keys()) this.remove(id); void this.context.close().catch(() => {}); }
+  resume() { if (!this.closed) void this.context.resume().catch(() => {}); }
+  close() { if (this.closed) return; this.closed = true; clearInterval(this.timer); for (const id of this.inputs.keys()) this.remove(id); void this.context.close().catch(() => {}); }
 }

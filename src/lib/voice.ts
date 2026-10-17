@@ -98,14 +98,14 @@ export class VoiceSession {
     peer.pc = pc;
     const sender = pc.addTransceiver('audio', { direction: 'sendrecv' }).sender;
     if (this.track) void sender.replaceTrack(this.track).catch(e => this.failed(e.message));
-    pc.onicecandidate = event => { if (event.candidate) void this.send(id, { target: peer.session, candidate: event.candidate.toJSON() }).catch(e => this.failed(e.message)); };
+    pc.onicecandidate = event => { if (!this.closed && peer.pc === pc && this.peers.get(id) === peer && event.candidate) void this.send(id, { target: peer.session, candidate: event.candidate.toJSON() }).catch(e => this.failed(e.message)); };
     pc.ontrack = event => {
-      if (this.closed || peer.pc !== pc) return;
+      if (this.closed || peer.pc !== pc || this.peers.get(id) !== peer) return;
       if (!peer.stream.getTracks().some(t => t.id === event.track.id)) peer.stream.addTrack(event.track);
       this.publish(id, peer);
     };
     pc.onconnectionstatechange = () => {
-      if (this.closed || peer.pc !== pc) return;
+      if (this.closed || peer.pc !== pc || this.peers.get(id) !== peer) return;
       this.publish(id, peer);
       if (pc.connectionState === 'failed') {
         this.failed('Voice could not connect to a participant. Try reconnecting voice; some networks need a TURN relay.');
@@ -113,6 +113,7 @@ export class VoiceSession {
       }
     };
     pc.onnegotiationneeded = async () => {
+      if (this.closed || peer.pc !== pc || this.peers.get(id) !== peer) return;
       try {
         peer.makingOffer = true;
         await pc.setLocalDescription();

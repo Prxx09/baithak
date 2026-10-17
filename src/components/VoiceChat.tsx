@@ -11,6 +11,8 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
   const [peers, setPeers] = useState<Record<string, VoicePeer>>({}), [error, setError] = useState('');
   const [speaking, setSpeaking] = useState<Record<string, boolean>>({}), [sound, setSound] = useState(true), [audioSettings, setAudioSettings] = useState(false);
   const [volume, setVolume] = useState(1), [sinkId, setSinkId] = useState(''), [outputLabel, setOutputLabel] = useState('System speaker / headphones');
+  const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]), [dock, setDock] = useState(false), [editing, setEditing] = useState(false);
+  const actions = useRef<HTMLDivElement>(null);
   const meter = useRef<AudioActivity | null>(null), metered = useRef(new Set<string>());
   const engine = useRef<VoiceSession | null>(null), stream = useRef<MediaStream | null>(null);
   const alive = useRef(true), joining = useRef(false), generation = useRef(0), currentMembers = useRef(members);
@@ -20,7 +22,7 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
     meter.current?.close(); meter.current = null; metered.current.clear(); setSpeaking({});
     generation.current++; engine.current?.close(); engine.current = null;
     stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
-    setJoined(false); setMuted(true); setPeers({});
+    setJoined(false); setMuted(true); setPeers({}); setDock(false); setAudioSettings(false);
   }
   useEffect(() => { alive.current = true; return () => {
     alive.current = false; generation.current++;
@@ -28,6 +30,30 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
     engine.current?.close(); stream.current?.getTracks().forEach(track => track.stop());
   }; }, []);
   useEffect(() => { engine.current?.sync(members); }, [members]);
+  useEffect(() => {
+    if (!joined) return;
+    let active = true;
+    const devices = navigator.mediaDevices;
+    const update = async () => {
+      if (!devices?.enumerateDevices || !('setSinkId' in HTMLMediaElement.prototype)) return;
+      try {
+        const list = (await devices.enumerateDevices()).filter(device => device.kind === 'audiooutput' && device.deviceId);
+        if (!active) return;
+        setOutputs(list);
+        if (sinkId && !list.some(device => device.deviceId === sinkId)) { setSinkId(''); setOutputLabel('System speaker / headphones'); }
+      } catch { /* Device controls remain available when enumeration is denied. */ }
+    };
+    void update(); devices?.addEventListener?.('devicechange', update);
+    return () => { active = false; devices?.removeEventListener?.('devicechange', update); };
+  }, [joined, sinkId, muted]);
+  useEffect(() => {
+    if (!joined || !actions.current || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => setDock(!entry.isIntersecting), { threshold: 0.2 });
+    observer.observe(actions.current);
+    const focus = () => setEditing(!!document.activeElement?.matches('input,textarea,select,[contenteditable="true"]'));
+    document.addEventListener('focusin', focus); document.addEventListener('focusout', focus);
+    return () => { observer.disconnect(); document.removeEventListener('focusin', focus); document.removeEventListener('focusout', focus); };
+  }, [joined]);
   useEffect(() => {
     if (!joined || !meter.current) return;
     const active = new Set<string>();
@@ -45,9 +71,9 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
     document.addEventListener('visibilitychange', resume); window.addEventListener('online', resume);
     return () => { document.removeEventListener('visibilitychange', resume); window.removeEventListener('online', resume); };
   }, []);
-  async function join() {
+  async function join(listenOnly = false) {
     if (joining.current) return;
-    if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
+    if ((!listenOnly && !navigator.mediaDevices?.getUserMedia) || !window.RTCPeerConnection) {
       setError('Voice needs microphone access in a supported browser over HTTPS.'); return;
     }
     joining.current = true; setBusy(true); setError('');
@@ -57,35 +83,56 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
       if (typeof AudioContext !== 'undefined') {
         try { meter.current = new AudioActivity((id, active) => { if (alive.current && generation.current === attempt) setSpeaking(previous => ({ ...previous, [id]: active })); }); } catch { /* Voice still works without visual metering. */ }
       }
-      captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
-      if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
+      if (!listenOnly) captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      if (!alive.current || generation.current !== attempt) { captured?.getTracks().forEach(track => track.stop()); return; }
       stream.current = captured;
       const confirmedMembers = prepareRef.current ? await prepareRef.current() : currentMembers.current;
-      if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
+      if (!alive.current || generation.current !== attempt) { captured?.getTracks().forEach(track => track.stop()); return; }
       const media = new VoiceSession(backend(), roomId, userId, (id, value) => {
         if (!alive.current || generation.current !== attempt) return;
         if (value?.state === 'connected') setError('');
         setPeers(previous => { const next = { ...previous }; if (value) next[id] = value; else delete next[id]; return next; });
       }, message => { if (alive.current && generation.current === attempt) setError(message); }, () => prepareRef.current ? prepareRef.current() : Promise.resolve(currentMembers.current));
       engine.current = media;
-      await media.setMicrophone(captured.getAudioTracks()[0]);
+      await media.setMicrophone(captured?.getAudioTracks()[0] || null);
       await media.start(confirmedMembers);
-      if (!alive.current || generation.current !== attempt) { media.close(); captured.getTracks().forEach(track => track.stop()); return; }
-      captured.getAudioTracks()[0].addEventListener('ended', () => {
+      if (!alive.current || generation.current !== attempt) { media.close(); captured?.getTracks().forEach(track => track.stop()); return; }
+      captured?.getAudioTracks()[0]?.addEventListener('ended', () => {
         if (alive.current && generation.current === attempt) { disconnect(); setError('Microphone access ended. Join voice to reconnect.'); }
       }, { once: true });
-      setJoined(true); setMuted(false);
+      setJoined(true); setMuted(listenOnly);
     } catch (e) {
       captured?.getTracks().forEach(track => track.stop());
       if (alive.current && generation.current === attempt) {
         disconnect();
-        setError((e as Error).name === 'NotAllowedError' ? 'Microphone permission was declined. Allow it in your browser, then join voice again.' : (e as Error).name === 'NotFoundError' ? 'No microphone found. Connect one and try again.' : (e as Error).message || 'Voice could not start. Please try again.');
+        setError((e as Error).name === 'NotAllowedError' ? 'Microphone permission was declined. You can still join listen-only.' : (e as Error).name === 'NotFoundError' ? 'No microphone found. You can still join listen-only.' : (e as Error).message || 'Voice could not start. Please try again.');
       }
     } finally { joining.current = false; if (alive.current) setBusy(false); }
   }
   async function toggleMute() {
-    const track = stream.current?.getAudioTracks()[0];
-    if (!track || busy) return;
+    meter.current?.resume();
+    if (busy) return;
+    if (!stream.current) {
+      const attempt = generation.current; setBusy(true); setError('');
+      let captured: MediaStream | null = null;
+      try {
+        captured = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+        if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
+        stream.current = captured;
+        const track = captured.getAudioTracks()[0];
+        await engine.current?.setMicrophone(track);
+        if (!alive.current || generation.current !== attempt) { captured.getTracks().forEach(track => track.stop()); return; }
+        track.addEventListener('ended', () => { if (alive.current && generation.current === attempt) { stream.current = null; setMuted(true); void engine.current?.setMicrophone(null).catch(() => {}); } }, { once: true });
+        setMuted(false);
+      } catch {
+        captured?.getTracks().forEach(track => track.stop()); stream.current = null;
+        void engine.current?.setMicrophone(null).catch(() => {});
+        if (alive.current && generation.current === attempt) setError('Your microphone could not start. You can keep listening.');
+      } finally { if (alive.current) setBusy(false); }
+      return;
+    }
+    const track = stream.current.getAudioTracks()[0];
+    if (!track) return;
     setBusy(true); setError('');
     const next = !muted;
     track.enabled = !next; setMuted(next);
@@ -102,9 +149,10 @@ export function VoiceChat({ roomId, userId, members, demo, prepare }: { roomId: 
   }
   return <section id="room-voice" className={`voice-chat ${joined ? 'in-call' : ''}`} aria-label="Live voice chat">
     <div className="voice-chat-copy"><span className={`voice-icon ${joined ? 'active' : ''}`}><Headphones size={21}/></span><div><h3>Talk while you watch.</h3><p role="status">{demo ? 'Voice connects in a real room.' : joined ? connected ? `${connected} voice connection${connected === 1 ? '' : 's'} · ${muted ? 'Your mic is muted' : 'Your mic is live'}` : `Voice joined · ${muted ? 'Mic muted' : 'Mic live'} · Waiting for others` : 'Live audio for everyone in the room. Join when you’re ready.'}</p></div></div>
-    <div className="voice-actions">{joined ? <><button className={`button ${muted ? 'secondary' : 'primary'}`} aria-pressed={!muted} disabled={busy} onClick={() => void toggleMute()}>{muted ? <MicOff size={18}/> : <Mic size={18}/>} {muted ? 'Unmute mic' : 'Mute mic'}</button><button className="button secondary" aria-label={sound ? 'Mute incoming voice sound' : 'Enable incoming voice sound'} aria-pressed={sound} onClick={() => setSound(value => !value)}>{sound ? <Volume2 size={18}/> : <VolumeX size={18}/>} Sound {sound ? 'on' : 'off'}</button><button className="icon-button" aria-label="Audio settings" aria-expanded={audioSettings} onClick={() => setAudioSettings(value => !value)}><SlidersHorizontal size={18}/></button><button className="icon-button" aria-label="Reconnect voice" disabled={busy} onClick={() => { disconnect(); void join(); }}><RefreshCw size={17}/></button><button className="button secondary leave-voice" onClick={disconnect}><PhoneOff size={18}/> Leave voice</button></> : <button className="button secondary" disabled={demo || busy} onClick={() => void join()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Mic size={16}/>} {busy ? 'Connecting…' : 'Join voice'}</button>}</div>
+    <div className="voice-actions" ref={actions}>{joined ? <><button className={`button ${muted ? 'secondary' : 'primary'}`} aria-pressed={!muted} disabled={busy} onClick={() => void toggleMute()}>{muted ? <MicOff size={18}/> : <Mic size={18}/>} {muted ? 'Unmute mic' : 'Mute mic'}</button><button className="button secondary" aria-label={sound ? 'Mute incoming voice sound' : 'Enable incoming voice sound'} aria-pressed={sound} onClick={() => { meter.current?.resume(); setSound(value => !value); }}>{sound ? <Volume2 size={18}/> : <VolumeX size={18}/>} Sound {sound ? 'on' : 'off'}</button><button className="icon-button" aria-label="Audio settings" aria-expanded={audioSettings} onClick={() => setAudioSettings(value => !value)}><SlidersHorizontal size={18}/></button><button className="icon-button" aria-label="Reconnect voice" disabled={busy} onClick={() => { const listenOnly = !stream.current; disconnect(); void join(listenOnly); }}><RefreshCw size={17}/></button><button className="button secondary leave-voice" onClick={disconnect}><PhoneOff size={18}/> Leave voice</button></> : <><button className="button primary" disabled={demo || busy} onClick={() => void join()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Mic size={16}/>} {busy ? 'Connecting…' : 'Join voice'}</button><button className="button secondary" disabled={demo || busy} onClick={() => void join(true)}><Headphones size={16}/> Listen only</button></>}</div>
     {joined && <div className="voice-members"><SpeakingChip name="You" speaking={!muted && !!speaking[userId]} muted={muted}/>{Object.entries(peers).map(([id, peer]) => <SpeakingChip key={id} name={members.find(m => m.user_id === id)?.display_name || 'A friend'} speaking={peer.mic && peer.state === 'connected' && !!speaking[id]} muted={!peer.mic} connecting={peer.state !== 'connected'}/>)}</div>}
-    {joined && audioSettings && <div className="voice-audio-settings"><label>Voice volume <span>{Math.round(volume * 100)}%</span><input aria-label="Voice volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={event => setVolume(Number(event.target.value))}/></label><button className="button secondary" onClick={() => void chooseOutput()}><Volume2 size={16}/> Choose audio output</button><p>{outputLabel}. Speaker, earpiece and Bluetooth routing depend on your browser and phone. On iPhone, use the device volume buttons.</p></div>}
+    {joined && audioSettings && <div className="voice-audio-settings"><label>Voice volume <span>{Math.round(volume * 100)}%</span><input aria-label="Voice volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={event => setVolume(Number(event.target.value))}/></label>{outputs.length > 0 && <label>Speaker / headphones<select aria-label="Speaker or headphones" value={sinkId} onChange={event => { setSinkId(event.target.value); setOutputLabel(outputs.find(output => output.deviceId === event.target.value)?.label || 'System speaker / headphones'); }}><option value="">System default</option>{outputs.map((output, index) => <option key={output.deviceId} value={output.deviceId}>{output.label || `Audio output ${index + 1}`}</option>)}</select></label>}<button className="button secondary" onClick={() => void chooseOutput()}><Volume2 size={16}/> Choose audio output</button><p>{outputLabel}. Speaker, earpiece and Bluetooth routing depend on your browser and phone. On iPhone, use the device volume buttons.</p></div>}
+    {joined && dock && !editing && <div className="voice-mini-dock" role="group" aria-label="Quick call controls"><a href="#room-voice" className="dock-status"><span className="green-dot"/>{Object.values(speaking).some(Boolean) ? 'Someone’s speaking' : 'Voice connected'}</a><button aria-label={muted ? 'Unmute microphone' : 'Mute microphone'} aria-pressed={!muted} disabled={busy} onClick={() => void toggleMute()}>{muted ? <MicOff size={20}/> : <Mic size={20}/>}</button><button aria-label={sound ? 'Mute call audio' : 'Enable call audio'} aria-pressed={sound} onClick={() => { meter.current?.resume(); setSound(value => !value); }}>{sound ? <Volume2 size={20}/> : <VolumeX size={20}/>}</button><button className="dock-leave" aria-label="Leave voice call" onClick={disconnect}><PhoneOff size={20}/></button></div>}
     {error && <p className="voice-error" role="alert">{error}</p>}
     {joined && <p className="voice-tip">Use headphones to keep the video out of your microphone. Audio isn’t recorded.</p>}
     {joined && Object.entries(peers).map(([id, peer]) => <RemoteAudio key={id} stream={peer.stream} muted={!sound} volume={volume} sinkId={sinkId} onOutputError={setError}/>)}

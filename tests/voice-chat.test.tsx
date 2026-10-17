@@ -51,3 +51,24 @@ it('controls incoming sound independently of the microphone and offers audio set
   expect(mount.querySelector('[aria-label="Voice volume"]')).toBeTruthy();
   expect(mount.textContent).toContain('Speaker, earpiece and Bluetooth');
 });
+it('joins listen-only without asking for a microphone, then enables it explicitly', async () => {
+  await act(async () => root.render(<VoiceChat roomId="room" userId="you" members={members} demo={false}/>));
+  await act(async () => button('Listen only').click());
+  expect(getUserMedia).not.toHaveBeenCalled(); expect(media.setMicrophone).toHaveBeenCalledWith(null);
+  expect(button('Unmute mic')).toBeTruthy();
+  await act(async () => button('Unmute mic').click());
+  expect(getUserMedia).toHaveBeenCalledOnce(); expect(media.setMicrophone).toHaveBeenLastCalledWith(track);
+  await act(async () => button('Leave voice').click()); expect(stop).toHaveBeenCalled();
+});
+it('keeps quick call controls available after scrolling and hides them while typing', async () => {
+  let observe!: (entries: { isIntersecting: boolean }[]) => void;
+  const disconnect = vi.fn();
+  vi.stubGlobal('IntersectionObserver', class { constructor(callback: typeof observe) { observe = callback; } observe = vi.fn(); disconnect = disconnect; });
+  await act(async () => root.render(<VoiceChat roomId="room" userId="you" members={members} demo={false}/>));
+  await act(async () => button('Listen only').click());
+  await act(async () => observe([{ isIntersecting: false }]));
+  expect(mount.querySelector('[aria-label="Quick call controls"]')).toBeTruthy();
+  const input = document.createElement('input'); document.body.appendChild(input);
+  await act(async () => input.focus()); expect(mount.querySelector('[aria-label="Quick call controls"]')).toBeNull();
+  input.remove(); await act(async () => button('Leave voice').click()); expect(disconnect).toHaveBeenCalled();
+});

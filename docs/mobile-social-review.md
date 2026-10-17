@@ -20,6 +20,16 @@ Typing/reaction events use the existing recipient-only `baithak_signals` policie
 
 Speaking is an audio-energy estimate and can respond to background noise. Text status accompanies the visual ring. Reduced-motion preferences disable animated bars/dots. Audio output controls are optional and fail gracefully on unsupported browsers. Incoming sound can be disabled independently of the microphone. Device routing and iPhone volume remain controlled by the operating system where browser APIs are unavailable.
 
+## Second mobile pass
+
+- Added listen-only voice entry without a microphone prompt, with explicit opt-in to start talking later. A failed mic upgrade keeps the participant listening and stops capture.
+- Added a small mobile call bar when the main controls scroll offscreen. It hides while editing so it does not cover the keyboard or chat composer.
+- Enumerate permitted speaker/headphone outputs where `setSinkId` is supported. Removed/unplugged outputs fall back to the system default; device identifiers remain in local state only.
+- Resume the local speaking meter on call-control taps as well as foreground return, since mobile audio contexts can suspend.
+- Ignore ICE and connection callbacks from removed/replaced peers. They previously could revive a removed participant's visual state or publish stale candidates after reconnecting.
+- Reset typing state when room activity stops; show typing feedback on the Chat shortcut even while another panel is open.
+- Added editable conversation starters. They fill the draft and never send automatically.
+
 ## Remaining verification and follow-up
 
 - Verify microphone, autoplay recovery, output selection, background return, and simultaneous speech on physical Android/iPhone devices and separate networks. Simulated tests cannot establish actual audio quality.

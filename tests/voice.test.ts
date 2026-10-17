@@ -9,6 +9,8 @@ class PeerConnection {
   sender = { replaceTrack: vi.fn().mockResolvedValue(undefined) };
   addTransceiver = vi.fn(() => ({ sender: this.sender }));
   close = vi.fn(); getSenders() { return [this.sender]; }
+  onconnectionstatechange!: () => void;
+  onicecandidate!: (event: { candidate: { toJSON: () => object } }) => void;
   constructor() { PeerConnection.all.push(this); }
 }
 const member = (id: string) => ({ user_id: id, display_name: id, requested: false, last_seen: new Date().toISOString() });
@@ -74,5 +76,12 @@ describe('voice signaling and lifecycle', () => {
     insert.mockClear(); insert.mockResolvedValueOnce({ error: { code: '42501', message: 'new row violates row-level security policy' } });
     await session.setMicrophone(null);
     expect(insert).toHaveBeenCalledOnce(); expect(changed).toHaveBeenLastCalledWith('friend', null);
+  });
+  it('ignores connection callbacks and candidates from a removed participant', async () => {
+    signal(1, { hello: true }); await flush(); const old = PeerConnection.all[0];
+    session.sync([member('you')]); const calls = changed.mock.calls.length; insert.mockClear();
+    old.connectionState = 'connected'; old.onconnectionstatechange();
+    old.onicecandidate({ candidate: { toJSON: () => ({ candidate: 'old-ice' }) } }); await flush();
+    expect(changed).toHaveBeenCalledTimes(calls); expect(insert).not.toHaveBeenCalled();
   });
 });
